@@ -1,0 +1,141 @@
+{
+  "name": "cnki-paper-downloader",
+  "version": "1.0.0",
+  "description": "CNKI论文批量下载器 - 自动从中国知网下载学术论文",
+  "author": "Claude",
+  "license": "MIT",
+
+  "skill_type": "automation",
+  "category": "academic-tools",
+
+  "capabilities": [
+    "从CNKI自动检索和下载学术论文",
+    "支持10种文献类型：期刊、学位论文、会议、报纸、年鉴、专利、标准、成果、辑刊、图书、文库",
+    "智能解析自然语言输入",
+    "并发下载，提升效率",
+    "自动文件命名和冲突处理",
+    "完善的错误处理和日志记录"
+  ],
+
+  "dependencies": {
+    "python": ">=3.8",
+    "playwright": ">=1.40.0",
+    "pathlib": "*"
+  },
+
+  "entry_point": "src/main.py",
+  "main_class": "CNKIPaperDownloaderSkill",
+
+  "settings": {
+    "config_file": ".cnki_downloader/config.json",
+    "default_download_dir": "~/Downloads/CNKI",
+    "default_doc_type": "学术期刊",
+    "max_concurrent_downloads": 3,
+    "timeout": 30000,
+    "headless_browser": false
+  },
+
+  "usage": {
+    "examples": [
+      "帮我下载5篇跟'人工智能'相关的学位论文到 D:\\papers\\",
+      "下载10篇关于机器学习的期刊文章到 C:\\docs\\",
+      "帮我下20个会议论文，主题是深度学习，保存到 ~/papers/",
+      "下载5篇专利，关键词是区块链，到 D:\\patents\\"
+    ],
+    "supported_doc_types": [
+      "学术期刊", "学位论文", "会议", "报纸", "年鉴",
+      "专利", "标准", "成果", "学术辑刊", "图书", "文库"
+    ]
+  },
+
+  "features": {
+    "natural_language_parsing": true,
+    "concurrent_download": true,
+    "error_handling": true,
+    "logging": true,
+    "config_persistence": true
+  },
+
+  "installation": {
+    "steps": [
+      "1. 确保 Python 3.8+ 已安装",
+      "2. 安装依赖: pip install playwright",
+      "3. 安装浏览器: playwright install chromium",
+      "4. 将此目录复制到 ~/.claude/skills/",
+      "5. 重启 Claude Code"
+    ]
+  },
+
+  "configuration": {
+    "config_path": "~/.cnki_downloader/config.json",
+    "schema": {
+      "download_settings": {
+        "default_dir": "下载目录",
+        "max_concurrent": "最大并发数",
+        "timeout": "超时时间（毫秒）",
+        "retry_times": "重试次数"
+      },
+      "browser_settings": {
+        "headless": "是否无头模式",
+        "slow_mo": "操作延迟（毫秒）",
+        "viewport": "浏览器视口大小"
+      },
+      "file_settings": {
+        "sanitize_filename": "是否清理文件名",
+        "max_filename_length": "最大文件名长度",
+        "conflict_strategy": "文件冲突处理策略"
+      }
+    }
+  },
+
+  "api": {
+    "main_method": "download_papers",
+    "parameters": {
+      "user_input": {
+        "type": "string",
+        "required": true,
+        "description": "自然语言描述的下载需求"
+      }
+    },
+    "returns": {
+      "type": "string",
+      "description": "格式化的下载结果报告"
+    }
+  },
+
+  "troubleshooting": {
+    "common_issues": [
+      {
+        "issue": "无法定位搜索框",
+        "solution": "检查CNKI是否可访问，尝试手动访问 https://www.cnki.net/"
+      },
+      {
+        "issue": "下载速度很慢",
+        "solution": "检查网络连接，减少并发数配置，避开高峰时段"
+      },
+      {
+        "issue": "部分论文下载失败",
+        "solution": "检查是否需要登录，确认账号权限"
+      }
+    ]
+  },
+
+  "changelog": {
+    "1.0.0": {
+      "date": "2025-01-07",
+      "changes": [
+        "初始版本发布",
+        "支持10种文献类型",
+        "实现并发下载",
+        "添加自然语言解析",
+        "完善的错误处理和日志"
+      ]
+    }
+  },
+
+  "links": {
+    "repository": "https://github.com/yourusername/cnki-downloader-skill",
+    "documentation": "README.md",
+    "issues": "https://github.com/yourusername/cnki-downloader-skill/issues"
+  }
+}
