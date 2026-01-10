@@ -1,0 +1,5 @@
+Package: CNKI论文下载Skill
+Version: v1.0.0
+Build Date: 2026-01-10 14:26:24
+Repository: https://github.com/lbnqq/CNKI-skills
+Files: 123
