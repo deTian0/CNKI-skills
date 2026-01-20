@@ -167,11 +167,11 @@ class CNKIPaperDownloaderSkill:
         return help_text
 
     async def download(
-        self,
-        keyword: str,
-        count: int,
-        doc_type: str = "学术期刊",
-        save_dir: str = "."
+            self,
+            keyword: str,
+            count: int,
+            doc_type: str = "学术期刊",
+            save_dir: str = "."
     ) -> str:
         """
         下载论文（简化接口）

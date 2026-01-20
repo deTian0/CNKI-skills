@@ -211,6 +211,13 @@ class CNKIBrowser:
         except Exception as e:
             self.logger.error(f"❌ 关闭浏览器时出错: {e}")
 
+    async def _wait_for_page_load(self, timeout: int = 15000):
+        """等待页面加载完成（公共方法）"""
+        try:
+            await self.page.wait_for_load_state("networkidle", timeout=timeout)
+        except:
+            await self.page.wait_for_load_state("load", timeout=timeout)
+
     async def _check_and_switch_to_new_page(
             self,
             old_url: str,
@@ -286,54 +293,26 @@ class CNKIBrowser:
                     self.logger.info(f"✓ 找到URL不同的页面: {page.url}")
                     break
 
-        # 切换到目标页面
+        # 切换到目标页面并等待加载
         if target_page and target_page != self.page:
             self.page = target_page
             self.logger.info(f"✓ 已切换到目标页面: {self.page.url}")
-            # 等待新页面加载完成
-            try:
-                await self.page.wait_for_load_state("networkidle", timeout=15000)
-            except:
-                await self.page.wait_for_load_state("load", timeout=10000)
-        elif target_page:
-            # 目标页面就是当前页面，只需等待加载
-            self.logger.debug(f"目标页面就是当前页面: {self.page.url}")
-            try:
-                await self.page.wait_for_load_state("networkidle", timeout=15000)
-            except:
-                await self.page.wait_for_load_state("load", timeout=10000)
-        else:
-            # 没有找到目标页面，等待当前页面加载
+        elif not target_page:
             self.logger.warning(f"未找到目标页面，使用当前页面")
-            try:
-                await self.page.wait_for_load_state("networkidle", timeout=15000)
-            except:
-                await self.page.wait_for_load_state("load", timeout=10000)
+        
+        # 统一等待页面加载
+        await self._wait_for_page_load()
 
-            # 最后再次检查所有页面（延迟检测）
+        # 延迟检测：再次检查所有页面
+        if not target_page:
             await asyncio.sleep(1)
-            final_pages = list(self.context.pages)
-            for page in final_pages:
+            for page in self.context.pages:
                 page_url = page.url.lower()
-                # 如果提供了关键词，检查关键词；否则检查URL是否不同
-                if url_keywords:
-                    for keyword in url_keywords:
-                        if keyword in page_url and page.url != self.page.url:
-                            self.page = page
-                            self.logger.info(f"✓ 延迟检测到目标页面: {self.page.url}")
-                            try:
-                                await self.page.wait_for_load_state("networkidle", timeout=15000)
-                            except:
-                                await self.page.wait_for_load_state("load", timeout=10000)
-                            return self.page
-                else:
+                if url_keywords and any(k in page_url for k in url_keywords) or not url_keywords:
                     if page.url != self.page.url:
                         self.page = page
                         self.logger.info(f"✓ 延迟检测到目标页面: {self.page.url}")
-                        try:
-                            await self.page.wait_for_load_state("networkidle", timeout=15000)
-                        except:
-                            await self.page.wait_for_load_state("load", timeout=10000)
+                        await self._wait_for_page_load()
                         return self.page
 
         return target_page
@@ -854,101 +833,36 @@ class CNKIBrowser:
                     self.logger.debug(f"--- 处理第 {index}/{len(items)} 个项目 ---")
 
                     # 提取标题
+                    title_selectors = ["a.title", ".name a", "a[href*='detail']", "td a", "a"]
                     title_elem = None
-                    title = None
-
-                    # 尝试第一个标题选择器
-                    title_elem = await item.query_selector("a.title")
-                    if title_elem:
-                        self.logger.debug(f"  使用选择器 'a.title' 找到标题元素")
-                    else:
-                        # 尝试第二个标题选择器
-                        title_elem = await item.query_selector(".name a")
+                    for selector in title_selectors:
+                        title_elem = await item.query_selector(selector)
                         if title_elem:
-                            self.logger.debug(f"  使用选择器 '.name a' 找到标题元素")
-                        else:
-                            self.logger.debug(f"  未找到标题元素，尝试其他选择器...")
-                            # 尝试更多选择器
-                            title_elem = await item.query_selector("a[href*='detail']")
-                            if not title_elem:
-                                title_elem = await item.query_selector("td a")
-                            if not title_elem:
-                                title_elem = await item.query_selector("a")
-
-                    if title_elem:
-                        title = await title_elem.inner_text()
-                        title = title.strip()
-                        self.logger.debug(
-                            f"  提取到标题: {title[:50]}..." if len(title) > 50 else f"  提取到标题: {title}")
-                    else:
+                            break
+                    
+                    if not title_elem:
                         self.logger.warning(f"  第 {index} 个项目: 未找到标题元素，跳过")
                         continue
-
+                    
+                    title = (await title_elem.inner_text()).strip()
                     if not title:
                         self.logger.warning(f"  第 {index} 个项目: 标题为空，跳过")
                         continue
-
+                    
+                    self.logger.debug(f"  提取到标题: {title[:50]}{'...' if len(title) > 50 else ''}")
+                    
                     # 创建论文对象
                     paper = Paper(title=title)
-                    self.logger.debug(f"  创建论文对象: {title[:50]}...")
 
-                    # 提取作者（可选）
-                    author_elem = await item.query_selector(".author")
-                    if author_elem:
-                        paper.authors = (await author_elem.inner_text()).strip()
-                        self.logger.debug(f"  提取到作者: {paper.authors}")
-                    else:
-                        # 尝试其他作者选择器
-                        author_elem = await item.query_selector("td:nth-child(2)")
-                        if not author_elem:
-                            author_elem = await item.query_selector("[class*='author']")
-                        if author_elem:
-                            paper.authors = (await author_elem.inner_text()).strip()
-                            self.logger.debug(f"  提取到作者: {paper.authors}")
-                        else:
-                            self.logger.debug(f"  未找到作者信息")
+                    # 提取可选字段（作者、来源、年份）
+                    paper.authors = await self._extract_field(item, "author", [".author", "td:nth-child(2)", "[class*='author']"])
+                    paper.source = await self._extract_field(item, "source", [".source", "td:nth-child(3)", "[class*='source']"])
+                    paper.year = await self._extract_field(item, "year", [".date", "td:nth-child(4)", "[class*='date'], [class*='year']"])
 
-                    # 提取来源（可选）
-                    source_elem = await item.query_selector(".source")
-                    if source_elem:
-                        paper.source = (await source_elem.inner_text()).strip()
-                        self.logger.debug(f"  提取到来源: {paper.source}")
-                    else:
-                        # 尝试其他来源选择器
-                        source_elem = await item.query_selector("td:nth-child(3)")
-                        if not source_elem:
-                            source_elem = await item.query_selector("[class*='source']")
-                        if source_elem:
-                            paper.source = (await source_elem.inner_text()).strip()
-                            self.logger.debug(f"  提取到来源: {paper.source}")
-                        else:
-                            self.logger.debug(f"  未找到来源信息")
-
-                    # 提取年份（可选）
-                    date_elem = await item.query_selector(".date")
-                    if date_elem:
-                        paper.year = (await date_elem.inner_text()).strip()
-                        self.logger.debug(f"  提取到年份: {paper.year}")
-                    else:
-                        # 尝试其他年份选择器
-                        date_elem = await item.query_selector("td:nth-child(4)")
-                        if not date_elem:
-                            date_elem = await item.query_selector("[class*='date'], [class*='year']")
-                        if date_elem:
-                            paper.year = (await date_elem.inner_text()).strip()
-                            self.logger.debug(f"  提取到年份: {paper.year}")
-                        else:
-                            self.logger.debug(f"  未找到年份信息")
-
-                    # 提取详情页URL（可选）
-                    if title_elem:
-                        paper.url = await title_elem.get_attribute("href")
-                        if paper.url:
-                            self.logger.debug(f"  提取到URL: {paper.url}")
-                        else:
-                            self.logger.debug(f"  未找到URL")
-                    else:
-                        self.logger.debug(f"  无标题元素，无法提取URL")
+                    # 提取详情页URL
+                    paper.url = await title_elem.get_attribute("href") if title_elem else None
+                    if paper.url:
+                        self.logger.debug(f"  提取到URL: {paper.url}")
 
                     papers.append(paper)
                     self.logger.info(f"  ✓ 第 {index} 篇论文提取成功: {title[:50]}...")
@@ -1036,6 +950,34 @@ class CNKIBrowser:
                 download_time=elapsed
             )
 
+    async def _find_download_button(self, button_text: str):
+        """查找下载按钮（公共方法）"""
+        selectors = [
+            f"button:has-text('{button_text}')",
+            f"button:has(.n-button__content:text-is('{button_text}'))",
+            f"a:has-text('{button_text}')",
+        ]
+        for selector in selectors:
+            try:
+                button = await self.page.wait_for_selector(selector, timeout=3000, state="visible")
+                if button:
+                    self.logger.info(f"✓ 找到{button_text}按钮")
+                    return button
+            except:
+                continue
+        return None
+
+    async def _extract_field(self, item, field_name: str, selectors: List[str]) -> Optional[str]:
+        """提取字段的公共方法"""
+        for selector in selectors:
+            elem = await item.query_selector(selector)
+            if elem:
+                text = (await elem.inner_text()).strip()
+                if text:
+                    self.logger.debug(f"  提取到{field_name}: {text}")
+                    return text
+        return None
+
     async def _download_from_detail_page(self, paper: Paper) -> DownloadResult:
         """
         从详情页下载论文
@@ -1085,83 +1027,8 @@ class CNKIBrowser:
             await self.page.goto(paper.url, timeout=self.timeout)
             await self.page.wait_for_load_state("networkidle")
 
-            # 查找PDF下载按钮
-            download_button = None
-
-            # 尝试多种选择器策略查找PDF下载按钮
-            pdf_selectors = [
-                "button:has-text('PDF下载')",  # button元素包含文本
-                "button .n-button__content:text-is('PDF下载')",  # button内的span元素
-                "button.n-button:has(.n-button__content:text-is('PDF下载'))",  # 通过class和内容定位
-                "a:has-text('PDF下载')",  # a标签（备用）
-            ]
-            
-            for selector in pdf_selectors:
-                try:
-                    self.logger.debug(f"尝试PDF下载按钮选择器: {selector}")
-                    download_button = await self.page.wait_for_selector(
-                        selector,
-                        timeout=3000,
-                        state="visible"
-                    )
-                    if download_button:
-                        # 如果是通过span定位的，需要找到父button
-                        if "n-button__content" in selector:
-                            # 使用JavaScript找到父button元素
-                            try:
-                                # 通过evaluate获取父button元素
-                                parent_button = await download_button.evaluate("el => el.closest('button')")
-                                if parent_button:
-                                    # 重新查询父button元素
-                                    download_button = await self.page.query_selector("button:has(.n-button__content:text-is('PDF下载'))")
-                            except Exception as e:
-                                self.logger.debug(f"获取父button失败: {e}，尝试直接查找")
-                                # 如果获取父元素失败，尝试直接查找button
-                                download_button = await self.page.query_selector("button:has(.n-button__content:text-is('PDF下载'))")
-                        self.logger.info(f"✓ 找到PDF下载按钮，使用选择器: {selector}")
-                        break
-                except Exception as e:
-                    self.logger.debug(f"选择器 {selector} 失败: {e}")
-                    continue
-            
-            # 如果PDF按钮未找到，尝试CAJ下载
-            if not download_button:
-                self.logger.info("未找到PDF下载按钮，尝试CAJ格式")
-                caj_selectors = [
-                    "button:has-text('CAJ下载')",  # button元素包含文本
-                    "button .n-button__content:text-is('CAJ下载')",  # button内的span元素
-                    "button.n-button:has(.n-button__content:text-is('CAJ下载'))",  # 通过class和内容定位
-                    "a:has-text('CAJ下载')",  # a标签（备用）
-                ]
-                
-                for selector in caj_selectors:
-                    try:
-                        self.logger.debug(f"尝试CAJ下载按钮选择器: {selector}")
-                        download_button = await self.page.wait_for_selector(
-                            selector,
-                            timeout=3000,
-                            state="visible"
-                        )
-                        if download_button:
-                            # 如果是通过span定位的，需要找到父button
-                            if "n-button__content" in selector:
-                                # 使用JavaScript找到父button元素
-                                try:
-                                    # 通过evaluate获取父button元素
-                                    parent_button = await download_button.evaluate("el => el.closest('button')")
-                                    if parent_button:
-                                        # 重新查询父button元素
-                                        download_button = await self.page.query_selector("button:has(.n-button__content:text-is('CAJ下载'))")
-                                except Exception as e:
-                                    self.logger.debug(f"获取父button失败: {e}，尝试直接查找")
-                                    # 如果获取父元素失败，尝试直接查找button
-                                    download_button = await self.page.query_selector("button:has(.n-button__content:text-is('CAJ下载'))")
-                            self.logger.info(f"✓ 找到CAJ下载按钮，使用选择器: {selector}")
-                            break
-                    except Exception as e:
-                        self.logger.debug(f"选择器 {selector} 失败: {e}")
-                        continue
-            
+            # 查找下载按钮（PDF优先，CAJ备用）
+            download_button = await self._find_download_button("PDF下载") or await self._find_download_button("CAJ下载")
             if not download_button:
                 raise Exception("未找到下载按钮（PDF或CAJ）")
 

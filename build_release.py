@@ -43,6 +43,7 @@ EXCLUDE_PATTERNS = [
     'build_release.bat',
 ]
 
+
 def should_exclude(file_path):
     """检查文件是否应该被排除"""
     file_str = str(file_path).replace('\\', '/')
@@ -62,6 +63,7 @@ def should_exclude(file_path):
                 return True
 
     return False
+
 
 def create_package():
     """创建发布包"""
@@ -145,10 +147,12 @@ def create_package():
     print()
     print("=" * 50)
 
+
 if __name__ == "__main__":
     try:
         create_package()
     except Exception as e:
         print(f"\nERROR: Build failed - {e}")
         import traceback
+
         traceback.print_exc()

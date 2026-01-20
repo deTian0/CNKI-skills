@@ -28,15 +28,19 @@ To create a custom requirements template:
 # Requirements Document
 
 ## Executive Summary
+
 [Your custom section]
 
 ## Business Requirements
+
 [Your custom structure]
 
 ## Technical Requirements
+
 [Your custom fields]
 
 ## Custom Sections
+
 [Add any sections specific to your workflow]
 ```
 

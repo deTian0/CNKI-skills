@@ -3,9 +3,11 @@
 ## 1. 需求概述
 
 ### 1.1 项目目标
+
 开发一个Claude Skill，能够自动化地从中国知网(CNKI)批量下载学术论文，支持多种文献类型，智能识别用户意图，并提供高效的并发下载能力。
 
 ### 1.2 核心价值
+
 - **自动化流程**: 从检索到下载全流程自动化
 - **智能识别**: 理解自然语言中的文献类型和需求
 - **高效下载**: 支持并发下载，提升效率
@@ -18,6 +20,7 @@
 ### 2.1 用户输入解析
 
 #### 2.1.1 输入格式
+
 支持多种自然语言表达方式，例如：
 
 ```
@@ -32,30 +35,30 @@
 
 #### 2.1.2 必需参数识别
 
-| 参数 | 说明 | 示例 | 是否必需 |
-|------|------|------|---------|
-| **关键词** | 检索关键词 | "人工智能"、"机器学习" | ✅ 必需 |
-| **数量** | 下载论文数量 | "5篇"、"10个" | ✅ 必需 |
-| **文献类型** | 文献类型 | "学位论文"、"期刊" | ✅ 必需（有默认值） |
-| **保存目录** | 下载保存路径 | "D:\papers\"、"~/docs/" | ✅ 必需 |
+| 参数       | 说明     | 示例                     | 是否必需       |
+|----------|--------|------------------------|------------|
+| **关键词**  | 检索关键词  | "人工智能"、"机器学习"          | ✅ 必需       |
+| **数量**   | 下载论文数量 | "5篇"、"10个"             | ✅ 必需       |
+| **文献类型** | 文献类型   | "学位论文"、"期刊"            | ✅ 必需（有默认值） |
+| **保存目录** | 下载保存路径 | "D:\papers\"、"~/docs/" | ✅ 必需       |
 
 #### 2.1.3 文献类型映射表
 
 **10种标准类型映射规则:**
 
-| 用户输入 | 映射类型 | 别名/变体 |
-|---------|---------|-----------|
-| 学术期刊 | `学术期刊` | 期刊、期刊文章、期刊论文、magazine、journal |
+| 用户输入 | 映射类型   | 别名/变体                                 |
+|------|--------|---------------------------------------|
+| 学术期刊 | `学术期刊` | 期刊、期刊文章、期刊论文、magazine、journal         |
 | 学位论文 | `学位论文` | 学位、硕博论文、硕士论文、博士论文、thesis、dissertation |
-| 会议 | `会议` | 会议论文、会议文章、conference、proceedings |
-| 报纸 | `报纸` | 报纸文章、newspaper |
-| 年鉴 | `年鉴` | 统计年鉴、yearbook、almanac |
-| 专利 | `专利` | patent、专利文献 |
-| 标准 | `标准` | standard、标准文献、规范 |
-| 成果 | `成果` | 科技成果、achievements、成果 |
-| 学术辑刊 | `学术辑刊` | 辑刊 |
-| 图书 | `图书` | 图书章节、book、图书文献 |
-| 文库 | `文库` | 知网文库、wenku |
+| 会议   | `会议`   | 会议论文、会议文章、conference、proceedings      |
+| 报纸   | `报纸`   | 报纸文章、newspaper                        |
+| 年鉴   | `年鉴`   | 统计年鉴、yearbook、almanac                 |
+| 专利   | `专利`   | patent、专利文献                           |
+| 标准   | `标准`   | standard、标准文献、规范                      |
+| 成果   | `成果`   | 科技成果、achievements、成果                  |
+| 学术辑刊 | `学术辑刊` | 辑刊                                    |
+| 图书   | `图书`   | 图书章节、book、图书文献                        |
+| 文库   | `文库`   | 知网文库、wenku                            |
 
 **默认值**: 如果用户未指定文献类型，默认使用"学术期刊"
 
@@ -106,12 +109,14 @@
 #### 2.2.2 页面操作细节
 
 **步骤1: 导航到首页**
+
 ```
 URL: https://www.cnki.net/
 等待: 页面完全加载（判断标准: 搜索框可见）
 ```
 
 **步骤2: 选择文献类型**
+
 ```
 定位方式: 基于页面快照中的文献类型导航区
 选择器策略:
@@ -126,6 +131,7 @@ URL: https://www.cnki.net/
 ```
 
 **步骤3: 执行检索**
+
 ```
 搜索框定位:
   - 选择器: textbox[placeholder*="文献"]
@@ -142,6 +148,7 @@ URL: https://www.cnki.net/
 ```
 
 **步骤4: 获取论文列表**
+
 ```
 结果列表容器定位:
   - 选择器: .result-table-list 或 .grid-list
@@ -160,6 +167,7 @@ URL: https://www.cnki.net/
 ```
 
 **步骤5: 下载单篇论文**
+
 ```
 定位下载按钮:
   - 优先: "PDF下载"按钮
@@ -183,6 +191,7 @@ URL: https://www.cnki.net/
 ### 2.3 文件命名规则
 
 #### 2.3.1 命名格式
+
 ```
 格式: {标题}.pdf
 
@@ -201,6 +210,7 @@ URL: https://www.cnki.net/
 ```
 
 #### 2.3.2 文件名清理规则
+
 ```
 非法字符替换:
   - \ / : * ? " < > | → _
@@ -221,6 +231,7 @@ URL: https://www.cnki.net/
 ### 2.4 并发下载策略
 
 #### 2.4.1 并发控制
+
 ```
 并发数: 3个同时下载任务
 
@@ -236,6 +247,7 @@ URL: https://www.cnki.net/
 ```
 
 #### 2.4.2 下载队列管理
+
 ```
 队列结构:
   待下载队列 → 下载中 → 完成/失败
@@ -257,6 +269,7 @@ URL: https://www.cnki.net/
 ### 2.5 异常处理机制
 
 #### 2.5.1 页面加载超时
+
 ```
 场景: 页面加载缓慢或卡住
 处理:
@@ -269,6 +282,7 @@ URL: https://www.cnki.net/
 ```
 
 #### 2.5.2 元素定位失败
+
 ```
 场景: 找不到搜索框、按钮等元素
 处理:
@@ -281,6 +295,7 @@ URL: https://www.cnki.net/
 ```
 
 #### 2.5.3 下载失败
+
 ```
 场景: 点击下载后文件未保存
 原因:
@@ -299,6 +314,7 @@ URL: https://www.cnki.net/
 ```
 
 #### 2.5.4 付费论文
+
 ```
 场景: 提示需要购买或权限不足
 处理:
@@ -311,6 +327,7 @@ URL: https://www.cnki.net/
 ```
 
 #### 2.5.5 文件系统错误
+
 ```
 场景: 目录不存在、权限不足
 处理:
@@ -329,20 +346,22 @@ URL: https://www.cnki.net/
 ### 3.1 技术栈
 
 #### 3.1.1 核心技术
+
 - **Playwright**: 浏览器自动化
-  - 已在Claude Code环境中集成
-  - 支持Chromium内核
-  - 提供稳定的API
+    - 已在Claude Code环境中集成
+    - 支持Chromium内核
+    - 提供稳定的API
 
 - **Python 3.x**: 主要开发语言
-  - 异步编程支持
-  - 丰富的库生态
+    - 异步编程支持
+    - 丰富的库生态
 
 - **正则表达式**: 用户输入解析
 - **pathlib**: 路径处理
 - **asyncio**: 并发控制
 
 #### 3.1.2 项目结构
+
 ```
 cnki-downloader-skill/
 ├── skill.json                 # Skill配置文件
@@ -450,9 +469,9 @@ class ConcurrentDownloader:
         self.semaphore = asyncio.Semaphore(max_concurrent)
 
     async def download_all(
-        self,
-        papers: List[Paper],
-        browser: CNKIBrowser
+            self,
+            papers: List[Paper],
+            browser: CNKIBrowser
     ) -> List[DownloadResult]:
         """并发下载所有论文"""
 
@@ -465,9 +484,9 @@ class ConcurrentDownloader:
         return results
 
     async def _download_single(
-        self,
-        paper: Paper,
-        browser: CNKIBrowser
+            self,
+            paper: Paper,
+            browser: CNKIBrowser
     ) -> DownloadResult:
         """下载单篇（带并发控制）"""
 
@@ -560,7 +579,7 @@ DEFAULT_CONFIG = {
 
     # 浏览器设置
     "headless": False,  # 是否无头模式
-    "slow_mo": 100,     # 操作延迟（毫秒）
+    "slow_mo": 100,  # 操作延迟（毫秒）
 
     # 文件命名
     "sanitize_filename": True,
@@ -592,11 +611,13 @@ DEFAULT_CONFIG = {
 ### 4.1 命令格式
 
 #### 4.1.1 标准命令
+
 ```
 下载 {数量} 篇关于 "{关键词}" 的 {文献类型} 到 {目录}
 ```
 
 #### 4.1.2 简化命令
+
 ```
 下载 {数量} 篇 {关键词} {文献类型} {目录}
 ```
@@ -723,6 +744,7 @@ def test_parse_standard_input():
     assert request.doc_type == "学位论文"
     assert request.save_dir == Path("D:\\papers\\")
 
+
 def test_parse_with_aliases():
     """测试别名识别"""
     test_cases = [
@@ -736,12 +758,14 @@ def test_parse_with_aliases():
         request = parser.parse(text)
         assert request.doc_type == expected_type
 
+
 def test_parse_without_doc_type():
     """测试未指定文献类型"""
     text = "下载5篇关于AI的论文到 D:\\papers\\"
     request = parser.parse(text)
 
     assert request.doc_type == "学术期刊"  # 默认值
+
 
 def test_parse_chinese_numbers():
     """测试中文数字"""
@@ -783,6 +807,7 @@ async def test_full_download_flow():
     assert len(result.files) == result.success_count
     assert result.save_dir.exists()
 
+
 async def test_concurrent_download():
     """测试并发下载"""
     downloader = CNKIDownloader(max_concurrent=3)
@@ -803,13 +828,14 @@ async def test_concurrent_download():
     # 3并发应该约100-120秒
     assert elapsed_time < 200  # 留些余量
 
+
 async def test_error_handling():
     """测试错误处理"""
     downloader = CNKIDownloader()
 
     # 模拟网络错误
     with mock.patch.object(downloader, '_download_single',
-                          side_effect=NetworkError):
+                           side_effect=NetworkError):
         result = await downloader.download(
             DownloadRequest(
                 keyword="test",
@@ -848,6 +874,7 @@ def test_filename_sanitization():
         result = sanitize_filename(original)
         assert result == expected
 
+
 def test_duplicate_filename_handling():
     """测试重名处理"""
     # 模拟已存在文件
@@ -878,6 +905,7 @@ async def test_large_count():
     result = await downloader.download(request)
     assert result.success_count <= 100
 
+
 async def test_special_keyword():
     """测试特殊关键词"""
     test_keywords = [
@@ -900,6 +928,7 @@ async def test_special_keyword():
         else:  # 空字符串
             with pytest.raises(ValueError):
                 parser.parse(f"下载5篇到 D:\\test\\")
+
 
 async def test_invalid_directory():
     """测试无效目录"""
@@ -932,6 +961,7 @@ async def test_download_speed():
 
     speed = result.success_count / elapsed_time * 60  # 篇/分钟
     assert speed >= 1.0  # 至少1篇/分钟
+
 
 async def test_memory_usage():
     """测试内存使用"""
@@ -1049,24 +1079,28 @@ Claude: 好的，我来帮您下载。
 
 **Q: 下载速度很慢怎么办？**
 A:
+
 - 检查网络连接
 - 减少并发数（改为2）
 - 避开高峰时段
 
 **Q: 提示"无法定位搜索框"？**
 A:
+
 - 检查CNKI是否可访问
 - 尝试手动访问 https://www.cnki.net/
 - 查看错误日志
 
 **Q: 部分论文下载失败？**
 A:
+
 - 检查是否需要登录
 - 确认账号权限
 - 查看跳过原因
 
 **Q: 文件名乱码？**
 A:
+
 - 确保使用UTF-8编码
 - 检查系统语言设置
 
@@ -1101,34 +1135,34 @@ A:
 
 ### 8.1 文献类型完整映射表
 
-| 标准名称 | 别名列表 | 优先级 |
-|---------|---------|--------|
-| 学术期刊 | 期刊,期刊文章,期刊论文,journal,magazine,核心期刊,CSSCI | 1 |
-| 学位论文 | 学位,硕博论文,硕士论文,博士论文,thesis,dissertation | 2 |
-| 会议 | 会议,会议论文,会议文章,conference,proceedings,学术会议 | 3 |
-| 报纸 | 报纸,报纸文章,newspaper,报刊 | 4 |
-| 年鉴 | 年鉴,统计年鉴,yearbook,almanac | 5 |
-| 专利 | 专利,patent,专利文献,发明专利 | 6 |
-| 标准 | 标准,standard,标准文献,规范,行业标准 | 7 |
-| 成果 | 成果,科技成果,achievements,科技成果 | 8 |
-| 学术辑刊 | 辑刊,学术辑刊 | 9 |
-| 图书 | 图书,图书章节,book,图书文献 | 10 |
-| 文库 | 文库,知网文库,wenki | 11 |
+| 标准名称 | 别名列表                                     | 优先级 |
+|------|------------------------------------------|-----|
+| 学术期刊 | 期刊,期刊文章,期刊论文,journal,magazine,核心期刊,CSSCI | 1   |
+| 学位论文 | 学位,硕博论文,硕士论文,博士论文,thesis,dissertation    | 2   |
+| 会议   | 会议,会议论文,会议文章,conference,proceedings,学术会议 | 3   |
+| 报纸   | 报纸,报纸文章,newspaper,报刊                     | 4   |
+| 年鉴   | 年鉴,统计年鉴,yearbook,almanac                 | 5   |
+| 专利   | 专利,patent,专利文献,发明专利                      | 6   |
+| 标准   | 标准,standard,标准文献,规范,行业标准                 | 7   |
+| 成果   | 成果,科技成果,achievements,科技成果                | 8   |
+| 学术辑刊 | 辑刊,学术辑刊                                  | 9   |
+| 图书   | 图书,图书章节,book,图书文献                        | 10  |
+| 文库   | 文库,知网文库,wenki                            | 11  |
 
 ### 8.2 错误代码表
 
-| 代码 | 说明 | 处理建议 |
-|------|------|---------|
-| E001 | 无法解析用户输入 | 检查输入格式 |
-| E002 | 网络连接失败 | 检查网络连接 |
-| E003 | 页面加载超时 | 刷新重试 |
-| E004 | 无法定位元素 | 检查页面结构 |
-| E005 | 下载失败 | 重试或跳过 |
-| E006 | 权限不足 | 登录账号 |
-| E007 | 磁盘空间不足 | 清理磁盘空间 |
-| E008 | 目录权限不足 | 检查目录权限 |
-| E009 | 文件名冲突 | 自动处理或询问用户 |
-| E010 | 并发超限 | 降低并发数 |
+| 代码   | 说明       | 处理建议      |
+|------|----------|-----------|
+| E001 | 无法解析用户输入 | 检查输入格式    |
+| E002 | 网络连接失败   | 检查网络连接    |
+| E003 | 页面加载超时   | 刷新重试      |
+| E004 | 无法定位元素   | 检查页面结构    |
+| E005 | 下载失败     | 重试或跳过     |
+| E006 | 权限不足     | 登录账号      |
+| E007 | 磁盘空间不足   | 清理磁盘空间    |
+| E008 | 目录权限不足   | 检查目录权限    |
+| E009 | 文件名冲突    | 自动处理或询问用户 |
+| E010 | 并发超限     | 降低并发数     |
 
 ### 8.3 配置文件完整示例
 
@@ -1183,6 +1217,7 @@ A:
 ✅ **可扩展性**: 模块化设计，便于后续优化
 
 **关键特性**:
+
 - 🎯 智能识别10种文献类型
 - 🚀 并发下载（3个任务同时进行）
 - 📁 自动文件命名和冲突处理
@@ -1190,6 +1225,7 @@ A:
 - 📊 详细的下载报告
 
 **开发优先级**:
+
 1. 核心下载功能（MVP）
 2. 用户输入解析
 3. 并发下载优化
