@@ -197,11 +197,18 @@ class InputParser:
         - "会议论文"
         - "硕博论文" (别名)
         """
-        # 移除常见的干扰词汇
-        text_lower = text.lower().replace("的", " ").replace("相关", " ")
+        # 先尝试完整匹配（优先匹配更长的词汇，如"学位论文"优先于"学位"）
+        # 按长度降序排序，优先匹配更长的别名
+        sorted_aliases = sorted(self.alias_to_standard.items(), key=lambda x: len(x[0]), reverse=True)
 
-        # 遍历所有可能的文献类型词汇
-        for alias, standard_name in self.alias_to_standard.items():
+        for alias, standard_name in sorted_aliases:
+            # 直接文本匹配（不区分大小写）
+            if alias in text or alias.lower() in text.lower():
+                return standard_name
+
+        # 如果直接匹配失败，使用正则边界匹配
+        text_lower = text.lower().replace("的", " ").replace("相关", " ")
+        for alias, standard_name in sorted_aliases:
             # 使用正则边界匹配，避免误匹配
             pattern = r'\b' + re.escape(alias) + r'\b'
             if re.search(pattern, text_lower, re.IGNORECASE):

@@ -135,11 +135,19 @@ class ConcurrentDownloader:
             summary.end_time = datetime.now()
 
             # 保存错误日志
+            # 处理request.__dict__中的Path对象，转换为字符串
+            request_dict = {}
+            for key, value in request.__dict__.items():
+                if isinstance(value, Path):
+                    request_dict[key] = str(value)
+                else:
+                    request_dict[key] = value
+            
             error_log = ErrorLog(
                 error_code="E002",
                 error_message=str(e),
                 stack_trace=str(e.__traceback__) if e.__traceback__ else None,
-                context={"request": request.__dict__}
+                context={"request": request_dict}
             )
             save_error_log(error_log, self.config.logging.log_dir if self.config else Path.home() / "cnki_downloader_logs")
 

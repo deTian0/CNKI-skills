@@ -18,7 +18,7 @@ class CNKIBrowser:
     """CNKI浏览器操作封装"""
 
     # CNKI URL
-    CNKI_HOME = "https://www.cnki.net/"
+    CNKI_HOME = "https://kc.cnki.net/"
 
     # 文献类型选择器（基于页面视图分析）
     # 使用text-is进行精确文本匹配，避免匹配到包含相同文字的其他元素
@@ -38,9 +38,12 @@ class CNKIBrowser:
 
     # 检索框选择器（多种策略）
     SEARCH_INPUT_SELECTORS = [
+        "input[class*='n-input__input']",  # 优先使用，选择第一个匹配的元素
         "input[placeholder*='文献']",
         "input[type='text'].search-input",
         "input[class*='search']",
+        "/html/body/div[1]/div/div/div[2]/div/div[1]/div[2]/div[2]/div[1]/div/input",
+        '//*[@id="layoutContainer"]/div[2]/div/div[1]/div[2]/div[2]/div[1]/div/input'
     ]
 
     # 检索按钮选择器
@@ -51,27 +54,30 @@ class CNKIBrowser:
     ]
 
     # 论文列表项选择器
-    PAPER_ITEM_SELECTOR = ".result-table-list tr"
+    # PAPER_ITEM_SELECTOR = ".result-table-list tr"
+    PAPER_ITEM_SELECTOR = ".n-data-table-tbody tr"
     # 备用选择器
-    PAPER_ITEM_SELECTOR_ALT = ".grid-list-item"
+    PAPER_ITEM_SELECTOR_ALT = ("#layoutContainer > div.main-view > div > div.main-content-wrap >"
+                               " div.main-content > div > div.main > div > div.result-main-list.box-shadow > "
+                               "div.main-list__content > div.n-data-table.n-data-table--bottom-bordered.n-data-table--single-line.result-list.has-selection > div > div > div > div.n-scrollbar-container > div > table > tbody > tr")
 
-    # 下载按钮选择器
-    PDF_DOWNLOAD_SELECTOR = "a:has-text('PDF下载')"
-    CAJ_DOWNLOAD_SELECTOR = "a:has-text('CAJ下载')"
+    # 下载按钮选择器（支持button和a标签）
+    PDF_DOWNLOAD_SELECTOR = "button:has-text('PDF下载'), button .n-button__content:text-is('PDF下载'), a:has-text('PDF下载')"
+    CAJ_DOWNLOAD_SELECTOR = "button:has-text('CAJ下载'), button .n-button__content:text-is('CAJ下载'), a:has-text('CAJ下载')"
 
     def __init__(
-        self,
-        download_dir: Path,
-        headless: bool = False,
-        slow_mo: int = 500,
-        timeout: int = 30000,
-        viewport_width: int = 1366,
-        viewport_height: int = 768,
-        locale: str = "zh-CN",
-        timezone: str = "Asia/Shanghai",
-        browser_args: list = None,
-        user_agent: str = None,
-        logger = None
+            self,
+            download_dir: Path,
+            headless: bool = False,
+            slow_mo: int = 500,
+            timeout: int = 30000,
+            viewport_width: int = 1366,
+            viewport_height: int = 768,
+            locale: str = "zh-CN",
+            timezone: str = "Asia/Shanghai",
+            browser_args: list = None,
+            user_agent: str = None,
+            logger=None
     ):
         """
         初始化浏览器
@@ -205,6 +211,133 @@ class CNKIBrowser:
         except Exception as e:
             self.logger.error(f"❌ 关闭浏览器时出错: {e}")
 
+    async def _check_and_switch_to_new_page(
+            self,
+            old_url: str,
+            initial_pages: dict,
+            initial_page_count: int,
+            url_keywords: List[str] = None,
+            wait_time: int = 2,
+            action_description: str = "操作"
+    ) -> Optional[Page]:
+        """
+        检查并切换到新打开的页面（公共方法）
+
+        Args:
+            old_url: 操作前的页面URL
+            initial_pages: 操作前所有页面的URL字典 {url: page}
+            initial_page_count: 操作前的页面数量
+            url_keywords: 用于查找目标页面的URL关键词列表（如["search", "result"]）
+            wait_time: 等待新页面打开的时间（秒）
+            action_description: 操作描述（用于日志）
+
+        Returns:
+            找到的目标页面，如果没有找到则返回None
+        """
+        # 等待页面响应（可能是跳转或打开新标签页）
+        await asyncio.sleep(wait_time)
+
+        # 检查所有页面，找到新打开的页面或URL改变的页面
+        target_page = None
+        current_pages = list(self.context.pages)
+        current_page_count = len(current_pages)
+
+        # 策略1: 检查是否有新页面打开
+        if current_page_count > initial_page_count:
+            # 有新页面打开，检查所有新页面
+            for page in current_pages:
+                if page.url not in initial_pages:
+                    # 这是一个新页面
+                    target_page = page
+                    self.logger.info(f"✓ 检测到新标签页: {page.url}")
+                    break
+
+            # 如果没有找到新页面，使用最后一个页面
+            if not target_page and current_pages:
+                last_page = current_pages[-1]
+                if last_page.url != old_url:
+                    target_page = last_page
+                    self.logger.info(f"✓ 使用最后一个页面: {last_page.url}")
+
+        # 策略2: 检查当前页面URL是否改变
+        if not target_page:
+            new_url = self.page.url
+            if new_url != old_url:
+                target_page = self.page
+                self.logger.info(f"✓ 当前页面已跳转: {old_url} -> {new_url}")
+
+        # 策略3: 如果提供了URL关键词，检查所有页面找到包含关键词的页面
+        if not target_page and url_keywords:
+            for page in current_pages:
+                page_url = page.url.lower()
+                for keyword in url_keywords:
+                    if keyword in page_url and page.url != old_url:
+                        target_page = page
+                        self.logger.info(f"✓ 找到包含'{keyword}'的页面: {page.url}")
+                        break
+                if target_page:
+                    break
+
+        # 策略4: 检查所有页面，找到URL不同的页面
+        if not target_page:
+            for page in current_pages:
+                if page.url != old_url and page.url != self.page.url:
+                    target_page = page
+                    self.logger.info(f"✓ 找到URL不同的页面: {page.url}")
+                    break
+
+        # 切换到目标页面
+        if target_page and target_page != self.page:
+            self.page = target_page
+            self.logger.info(f"✓ 已切换到目标页面: {self.page.url}")
+            # 等待新页面加载完成
+            try:
+                await self.page.wait_for_load_state("networkidle", timeout=15000)
+            except:
+                await self.page.wait_for_load_state("load", timeout=10000)
+        elif target_page:
+            # 目标页面就是当前页面，只需等待加载
+            self.logger.debug(f"目标页面就是当前页面: {self.page.url}")
+            try:
+                await self.page.wait_for_load_state("networkidle", timeout=15000)
+            except:
+                await self.page.wait_for_load_state("load", timeout=10000)
+        else:
+            # 没有找到目标页面，等待当前页面加载
+            self.logger.warning(f"未找到目标页面，使用当前页面")
+            try:
+                await self.page.wait_for_load_state("networkidle", timeout=15000)
+            except:
+                await self.page.wait_for_load_state("load", timeout=10000)
+
+            # 最后再次检查所有页面（延迟检测）
+            await asyncio.sleep(1)
+            final_pages = list(self.context.pages)
+            for page in final_pages:
+                page_url = page.url.lower()
+                # 如果提供了关键词，检查关键词；否则检查URL是否不同
+                if url_keywords:
+                    for keyword in url_keywords:
+                        if keyword in page_url and page.url != self.page.url:
+                            self.page = page
+                            self.logger.info(f"✓ 延迟检测到目标页面: {self.page.url}")
+                            try:
+                                await self.page.wait_for_load_state("networkidle", timeout=15000)
+                            except:
+                                await self.page.wait_for_load_state("load", timeout=10000)
+                            return self.page
+                else:
+                    if page.url != self.page.url:
+                        self.page = page
+                        self.logger.info(f"✓ 延迟检测到目标页面: {self.page.url}")
+                        try:
+                            await self.page.wait_for_load_state("networkidle", timeout=15000)
+                        except:
+                            await self.page.wait_for_load_state("load", timeout=10000)
+                        return self.page
+
+        return target_page
+
     async def goto_homepage(self) -> Page:
         """
         导航到CNKI首页
@@ -243,6 +376,7 @@ class CNKIBrowser:
             Page对象
         """
         try:
+            self.logger.info(f"正在选择文献类型 self.page: {self.page}")
             self.logger.info(f"正在选择文献类型: {doc_type}")
 
             # 获取选择器
@@ -250,25 +384,190 @@ class CNKIBrowser:
             if not selector:
                 raise ValueError(f"未知的文献类型: {doc_type}")
 
-            # 等待链接出现
-            await self.page.wait_for_selector(
-                selector,
-                timeout=self.timeout
-            )
+            # 等待页面完全加载
+            await self.page.wait_for_load_state("domcontentloaded")
+            await asyncio.sleep(2)  # 额外等待2秒，确保动态内容加载
 
-            # 点击链接
-            await self.page.click(selector)
+            # 等待页面稳定
+            try:
+                await self.page.wait_for_load_state("networkidle", timeout=10000)
+            except:
+                pass  # 忽略超时，继续执行
+
+            # 尝试多种选择器策略
+            element = None
+            selectors_to_try = [
+                selector,  # 原始选择器 a:text-is('学术期刊')
+                f"a:has-text('{doc_type}')",  # 使用has-text
+                f"text='{doc_type}'",  # 直接文本匹配
+                f"//a[contains(text(), '{doc_type}')]",  # XPath包含文本
+                f"//a[text()='{doc_type}']",  # XPath精确匹配
+                f"a >> text='{doc_type}'",  # Playwright文本选择器
+            ]
+
+            for sel in selectors_to_try:
+                try:
+                    self.logger.debug(f"尝试选择器: {sel}")
+                    element = await self.page.wait_for_selector(
+                        sel,
+                        timeout=8000,  # 每个选择器尝试8秒
+                        state="visible"  # 确保元素可见
+                    )
+                    if element:
+                        # 验证元素是否真的包含目标文本
+                        element_text = await element.inner_text()
+                        if doc_type in element_text or element_text.strip() == doc_type:
+                            self.logger.info(f"✓ 找到元素，使用选择器: {sel}, 文本: '{element_text}'")
+                            break
+                        else:
+                            element = None  # 文本不匹配，继续尝试
+                except Exception as e:
+                    self.logger.debug(f"选择器 {sel} 失败: {e}")
+                    continue
+
+            if not element:
+                # 如果所有选择器都失败，尝试滚动页面并再次查找
+                self.logger.info("尝试滚动页面查找元素...")
+                await self.page.evaluate("window.scrollTo(0, document.body.scrollHeight / 2)")
+                await asyncio.sleep(1)
+
+                # 再次尝试原始选择器
+                try:
+                    element = await self.page.wait_for_selector(
+                        selector,
+                        timeout=10000,
+                        state="visible"
+                    )
+                except:
+                    pass
+
+            if not element:
+                # 尝试使用JavaScript直接查找元素
+                self.logger.info("尝试使用JavaScript查找元素...")
+                try:
+                    js_result = await self.page.evaluate(f"""
+                        (function() {{
+                            const targetText = '{doc_type}';
+                            const links = document.querySelectorAll('a');
+                            for (let link of links) {{
+                                const text = link.innerText || link.textContent || '';
+                                if (text.trim() === targetText || text.includes(targetText)) {{
+                                    // 标记元素以便后续查找
+                                    link.setAttribute('data-cnki-target', 'true');
+                                    return {{
+                                        found: true,
+                                        text: text.trim(),
+                                        href: link.href
+                                    }};
+                                }}
+                            }}
+                            return {{ found: false }};
+                        }})();
+                    """)
+
+                    if js_result and js_result.get('found'):
+                        self.logger.info(
+                            f"✓ JavaScript找到元素，文本: '{js_result.get('text')}', 链接: {js_result.get('href')}")
+                        # 使用标记查找元素
+                        element = await self.page.query_selector('a[data-cnki-target="true"]')
+                        if element:
+                            # 清除标记
+                            await self.page.evaluate(
+                                'document.querySelector("a[data-cnki-target]").removeAttribute("data-cnki-target")')
+                except Exception as e:
+                    self.logger.debug(f"JavaScript查找失败: {e}")
+
+            if not element:
+                # 最后尝试：查找所有包含该文本的链接
+                self.logger.info("尝试查找所有包含文本的链接...")
+                all_links = await self.page.query_selector_all("a")
+                self.logger.debug(f"页面中共找到 {len(all_links)} 个链接")
+
+                # 收集所有链接文本用于调试
+                link_texts = []
+                for link in all_links:
+                    try:
+                        text = await link.inner_text()
+                        text = text.strip()
+                        if text:
+                            link_texts.append(text)
+                            # 精确匹配或包含匹配
+                            if text == doc_type or doc_type in text:
+                                element = link
+                                self.logger.info(f"✓ 通过文本匹配找到元素: '{text}'")
+                                break
+                    except:
+                        continue
+
+                # 如果还没找到，输出所有链接文本用于调试
+                if not element:
+                    self.logger.warning(f"未找到包含'{doc_type}'的链接")
+                    # 输出所有链接文本（去重）
+                    unique_texts = list(set(link_texts))[:30]
+                    self.logger.debug(f"页面中的链接文本（前30个，去重）: {unique_texts}")
+
+                    # 尝试截图保存用于调试
+                    try:
+                        screenshot_path = self.download_dir / "debug_screenshot.png"
+                        await self.page.screenshot(path=str(screenshot_path), full_page=True)
+                        self.logger.info(f"已保存页面截图到: {screenshot_path}")
+                    except Exception as e:
+                        self.logger.debug(f"无法保存截图: {e}")
+
+                    # 尝试查找包含部分文本的链接（更宽松的匹配）
+                    for link in all_links:
+                        try:
+                            text = await link.inner_text()
+                            text = text.strip()
+                            # 尝试部分匹配（至少匹配2个字符）
+                            if len(doc_type) >= 2:
+                                for i in range(len(doc_type) - 1):
+                                    keyword = doc_type[i:i + 2]
+                                    if keyword in text:
+                                        element = link
+                                        self.logger.info(
+                                            f"✓ 通过部分文本匹配找到元素: '{text}' (匹配关键词: '{keyword}')")
+                                        break
+                                if element:
+                                    break
+                        except:
+                            continue
+
+            if not element:
+                # 输出页面URL和标题用于调试
+                page_url = self.page.url
+                page_title = await self.page.title()
+                self.logger.error(f"当前页面URL: {page_url}")
+                self.logger.error(f"当前页面标题: {page_title}")
+                raise Exception(f"无法找到文献类型链接: {doc_type}。请检查页面结构是否已更改。")
+
+            # 滚动到元素位置
+            await element.scroll_into_view_if_needed()
+            await asyncio.sleep(0.5)
+
+            # 点击链接（可能会打开新标签页，也可能在当前页面跳转）
+            old_url = self.page.url
+            self.logger.debug(f"点击前页面URL: {old_url}")
+
+            # 记录当前所有页面的URL
+            initial_pages = {page.url: page for page in self.context.pages}
+            initial_page_count = len(self.context.pages)
+
+            # 先点击链接
+            await element.click()
             self.logger.info(f"✓ 已点击'{doc_type}'链接")
 
-            # 等待页面加载
-            await self.page.wait_for_load_state("networkidle")
+            # 使用公共方法检查并切换到新页面
+            await self._check_and_switch_to_new_page(
+                old_url=old_url,
+                initial_pages=initial_pages,
+                initial_page_count=initial_page_count,
+                url_keywords=["search"],  # 查找包含"search"的页面
+                wait_time=2,
+                action_description=f"点击'{doc_type}'链接"
+            )
 
-            # 可能会打开新标签页，切换到新标签页
-            if len(self.context.pages) > 1:
-                self.page = self.context.pages[-1]
-                await self.page.wait_for_load_state("networkidle")
-
-            self.logger.info(f"✓ 已进入{doc_type}库页面")
+            self.logger.info(f"✓ 已进入{doc_type}库页面，当前页面URL: {self.page.url}")
 
             return self.page
 
@@ -288,47 +587,172 @@ class CNKIBrowser:
         """
         try:
             self.logger.info(f"正在执行检索: {keyword}")
+            self.logger.debug(f"当前页面URL: {self.page.url}")
 
             # 尝试多个选择器定位搜索框
             search_input = None
             for selector in self.SEARCH_INPUT_SELECTORS:
                 try:
-                    search_input = await self.page.wait_for_selector(
-                        selector,
-                        timeout=5000
-                    )
+                    # 对于可能匹配多个元素的选择器，使用 query_selector_all 并选择第一个
+                    if selector == "input[class*='n-input__input']":
+                        # 等待至少一个元素出现
+                        await self.page.wait_for_selector(selector, timeout=5000, state="visible")
+                        # 获取所有匹配的元素，选择第一个
+                        all_inputs = await self.page.query_selector_all(selector)
+                        if all_inputs and len(all_inputs) > 0:
+                            search_input = all_inputs[0]
+                            self.logger.debug(f"找到 {len(all_inputs)} 个匹配的输入框，选择第一个")
+                    else:
+                        search_input = await self.page.wait_for_selector(
+                            selector,
+                            timeout=5000,
+                            state="visible"
+                        )
+
                     if search_input:
-                        break
-                except:
+                        # 验证元素是否可见和可交互
+                        is_visible = await search_input.is_visible()
+                        if is_visible:
+                            self.logger.debug(f"✓ 使用选择器定位搜索框: {selector}")
+                            break
+                        else:
+                            search_input = None
+                except Exception as e:
+                    self.logger.debug(f"选择器 {selector} 失败: {e}")
                     continue
 
             if not search_input:
                 raise Exception("无法定位搜索框")
 
             # 清空并输入关键词
+            # 记录搜索前的状态（在按回车之前）
+            old_url = self.page.url
+            self.logger.debug(f"搜索前页面URL: {old_url}")
+            initial_pages = {page.url: page for page in self.context.pages}
+            initial_page_count = len(self.context.pages)
+
             await search_input.fill("")
             await search_input.fill(keyword)
             await search_input.press("Enter")  # 按回车也可以触发检索
             self.logger.info(f"✓ 已输入关键词: {keyword}")
 
-            # 等待结果页加载（使用load代替networkidle，避免超时）
+            # 在按回车后使用公共方法检测新页面（按回车后可能会打开新标签页）
+            await self._check_and_switch_to_new_page(
+                old_url=old_url,
+                initial_pages=initial_pages,
+                initial_page_count=initial_page_count,
+                url_keywords=["search", "result"],  # 查找包含"search"或"result"的页面
+                wait_time=2,
+                action_description="执行搜索"
+            )
+
+            # 等待结果页加载
+            self.logger.info("等待搜索结果页面加载...")
             try:
-                await self.page.wait_for_load_state("load", timeout=10000)
+                # 先等待页面基本加载完成
+                await self.page.wait_for_load_state("domcontentloaded", timeout=10000)
+                await asyncio.sleep(1)  # 额外等待1秒，确保动态内容开始加载
             except:
                 pass  # 忽略超时，继续执行
 
-            # 等待结果列表出现
-            try:
-                await self.page.wait_for_selector(
-                    self.PAPER_ITEM_SELECTOR,
-                    timeout=self.timeout
-                )
-            except:
-                # 尝试备用选择器
-                await self.page.wait_for_selector(
-                    self.PAPER_ITEM_SELECTOR_ALT,
-                    timeout=self.timeout
-                )
+            # 等待结果列表出现（使用多种策略）
+            result_found = False
+            selectors_to_try = [
+                (self.PAPER_ITEM_SELECTOR, "主选择器"),
+                (self.PAPER_ITEM_SELECTOR_ALT, "备用选择器"),
+            ]
+
+            # 使用轮询方式等待结果出现（最多等待30秒）
+            max_wait_time = 30
+            check_interval = 1
+            elapsed_time = 0
+
+            while elapsed_time < max_wait_time and not result_found:
+                for selector, selector_name in selectors_to_try:
+                    try:
+                        # 使用 JavaScript 检查元素是否存在且可见
+                        # 使用 JavaScript 检查元素是否存在且可见
+                        js_check = await self.page.evaluate(f"""
+                            (function() {{
+                                const elements = document.querySelectorAll('{selector}');
+                                if (elements.length > 0) {{
+                                    // 检查至少有一个元素可见
+                                    for (let elem of elements) {{
+                                        const rect = elem.getBoundingClientRect();
+                                        if (rect.width > 0 && rect.height > 0) {{
+                                            return {{ found: true, count: elements.length }};
+                                        }}
+                                    }}
+                                }}
+                                return {{ found: false, count: 0 }};
+                            }})();
+                        """)
+
+                        if js_check and js_check.get('found') and js_check.get('count', 0) > 0:
+                            self.logger.info(f"✓ 使用{selector_name}找到 {js_check.get('count')} 个结果项")
+                            result_found = True
+                            break
+                    except Exception as e:
+                        self.logger.debug(f"{selector_name}检查失败: {e}")
+                        continue
+
+                if not result_found:
+                    await asyncio.sleep(check_interval)
+                    elapsed_time += check_interval
+                    if elapsed_time % 5 == 0:  # 每5秒输出一次日志
+                        self.logger.debug(f"等待搜索结果... ({elapsed_time}/{max_wait_time}秒)")
+
+            # 如果还没找到，尝试滚动页面并再次查找
+            if not result_found:
+                self.logger.info("未找到结果列表，尝试滚动页面...")
+                try:
+                    # 滚动到页面中间
+                    await self.page.evaluate("window.scrollTo(0, document.body.scrollHeight / 2)")
+                    await asyncio.sleep(2)  # 等待内容加载
+
+                    # 再次尝试主选择器
+                    for selector, selector_name in selectors_to_try[:2]:  # 只尝试前两个
+                        try:
+                            items = await self.page.query_selector_all(selector)
+                            if items and len(items) > 0:
+                                self.logger.info(f"✓ 滚动后使用{selector_name}找到 {len(items)} 个结果项")
+                                result_found = True
+                                break
+                        except:
+                            continue
+                except Exception as e:
+                    self.logger.debug(f"滚动操作失败: {e}")
+
+            # 如果仍然没找到，输出调试信息
+            if not result_found:
+                self.logger.warning("未找到搜索结果列表")
+                # 尝试截图
+                try:
+                    screenshot_path = self.download_dir / "search_result_debug.png"
+                    await self.page.screenshot(path=str(screenshot_path), full_page=True)
+                    self.logger.info(f"已保存搜索结果页面截图到: {screenshot_path}")
+                except Exception as e:
+                    self.logger.debug(f"无法保存截图: {e}")
+
+                # 输出页面信息
+                page_url = self.page.url
+                page_title = await self.page.title()
+                self.logger.debug(f"当前页面URL: {page_url}")
+                self.logger.debug(f"当前页面标题: {page_title}")
+
+                # 检查是否有错误提示
+                try:
+                    error_elements = await self.page.query_selector_all(".error, .no-result, .empty")
+                    if error_elements:
+                        for elem in error_elements:
+                            text = await elem.inner_text()
+                            if text:
+                                self.logger.warning(f"页面提示: {text}")
+                except:
+                    pass
+
+                # 不抛出异常，继续执行（可能页面结构已变化，但可以尝试继续）
+                self.logger.warning("⚠️ 未找到结果列表，但将继续执行...")
 
             self.logger.info("✓ 检索完成，结果页已加载")
 
@@ -403,60 +827,141 @@ class CNKIBrowser:
             当前页的论文列表
         """
         papers = []
+        self.logger.info("=" * 60)
+        self.logger.info("开始从当前页提取论文信息...")
+        self.logger.debug(f"当前页面URL: {self.page.url}")
 
         try:
             # 尝试主选择器
+            self.logger.debug(f"尝试使用主选择器: {self.PAPER_ITEM_SELECTOR}")
             items = await self.page.query_selector_all(self.PAPER_ITEM_SELECTOR)
+            self.logger.info(f"主选择器找到 {len(items)} 个项目")
 
             # 如果主选择器失败，尝试备用选择器
             if not items:
+                self.logger.debug(f"主选择器未找到项目，尝试备用选择器: {self.PAPER_ITEM_SELECTOR_ALT}")
                 items = await self.page.query_selector_all(self.PAPER_ITEM_SELECTOR_ALT)
+                self.logger.info(f"备用选择器找到 {len(items)} 个项目")
 
-            for item in items:
+            if not items:
+                self.logger.warning("未找到任何论文项目")
+                return papers
+
+            self.logger.info(f"共找到 {len(items)} 个论文项目，开始提取信息...")
+
+            for index, item in enumerate(items, 1):
                 try:
+                    self.logger.debug(f"--- 处理第 {index}/{len(items)} 个项目 ---")
+
                     # 提取标题
+                    title_elem = None
+                    title = None
+
+                    # 尝试第一个标题选择器
                     title_elem = await item.query_selector("a.title")
-                    if not title_elem:
+                    if title_elem:
+                        self.logger.debug(f"  使用选择器 'a.title' 找到标题元素")
+                    else:
+                        # 尝试第二个标题选择器
                         title_elem = await item.query_selector(".name a")
+                        if title_elem:
+                            self.logger.debug(f"  使用选择器 '.name a' 找到标题元素")
+                        else:
+                            self.logger.debug(f"  未找到标题元素，尝试其他选择器...")
+                            # 尝试更多选择器
+                            title_elem = await item.query_selector("a[href*='detail']")
+                            if not title_elem:
+                                title_elem = await item.query_selector("td a")
+                            if not title_elem:
+                                title_elem = await item.query_selector("a")
 
                     if title_elem:
                         title = await title_elem.inner_text()
                         title = title.strip()
+                        self.logger.debug(
+                            f"  提取到标题: {title[:50]}..." if len(title) > 50 else f"  提取到标题: {title}")
+                    else:
+                        self.logger.warning(f"  第 {index} 个项目: 未找到标题元素，跳过")
+                        continue
 
-                        if not title:
-                            continue
+                    if not title:
+                        self.logger.warning(f"  第 {index} 个项目: 标题为空，跳过")
+                        continue
 
-                        # 创建论文对象
-                        paper = Paper(title=title)
+                    # 创建论文对象
+                    paper = Paper(title=title)
+                    self.logger.debug(f"  创建论文对象: {title[:50]}...")
 
-                        # 提取作者（可选）
-                        author_elem = await item.query_selector(".author")
+                    # 提取作者（可选）
+                    author_elem = await item.query_selector(".author")
+                    if author_elem:
+                        paper.authors = (await author_elem.inner_text()).strip()
+                        self.logger.debug(f"  提取到作者: {paper.authors}")
+                    else:
+                        # 尝试其他作者选择器
+                        author_elem = await item.query_selector("td:nth-child(2)")
+                        if not author_elem:
+                            author_elem = await item.query_selector("[class*='author']")
                         if author_elem:
                             paper.authors = (await author_elem.inner_text()).strip()
+                            self.logger.debug(f"  提取到作者: {paper.authors}")
+                        else:
+                            self.logger.debug(f"  未找到作者信息")
 
-                        # 提取来源（可选）
-                        source_elem = await item.query_selector(".source")
+                    # 提取来源（可选）
+                    source_elem = await item.query_selector(".source")
+                    if source_elem:
+                        paper.source = (await source_elem.inner_text()).strip()
+                        self.logger.debug(f"  提取到来源: {paper.source}")
+                    else:
+                        # 尝试其他来源选择器
+                        source_elem = await item.query_selector("td:nth-child(3)")
+                        if not source_elem:
+                            source_elem = await item.query_selector("[class*='source']")
                         if source_elem:
                             paper.source = (await source_elem.inner_text()).strip()
+                            self.logger.debug(f"  提取到来源: {paper.source}")
+                        else:
+                            self.logger.debug(f"  未找到来源信息")
 
-                        # 提取年份（可选）
-                        date_elem = await item.query_selector(".date")
+                    # 提取年份（可选）
+                    date_elem = await item.query_selector(".date")
+                    if date_elem:
+                        paper.year = (await date_elem.inner_text()).strip()
+                        self.logger.debug(f"  提取到年份: {paper.year}")
+                    else:
+                        # 尝试其他年份选择器
+                        date_elem = await item.query_selector("td:nth-child(4)")
+                        if not date_elem:
+                            date_elem = await item.query_selector("[class*='date'], [class*='year']")
                         if date_elem:
                             paper.year = (await date_elem.inner_text()).strip()
+                            self.logger.debug(f"  提取到年份: {paper.year}")
+                        else:
+                            self.logger.debug(f"  未找到年份信息")
 
-                        # 提取详情页URL（可选）
-                        if title_elem:
-                            paper.url = await title_elem.get_attribute("href")
+                    # 提取详情页URL（可选）
+                    if title_elem:
+                        paper.url = await title_elem.get_attribute("href")
+                        if paper.url:
+                            self.logger.debug(f"  提取到URL: {paper.url}")
+                        else:
+                            self.logger.debug(f"  未找到URL")
+                    else:
+                        self.logger.debug(f"  无标题元素，无法提取URL")
 
-                        papers.append(paper)
+                    papers.append(paper)
+                    self.logger.info(f"  ✓ 第 {index} 篇论文提取成功: {title[:50]}...")
 
                 except Exception as e:
-                    self.logger.warning(f"提取论文信息时出错: {e}")
+                    self.logger.warning(f"  第 {index} 个项目提取论文信息时出错: {e}", exc_info=True)
                     continue
 
         except Exception as e:
-            self.logger.error(f"解析论文列表时出错: {e}")
+            self.logger.error(f"解析论文列表时出错: {e}", exc_info=True)
 
+        self.logger.info(f"提取完成，共提取到 {len(papers)} 篇论文")
+        self.logger.info("=" * 60)
         return papers
 
     async def download_paper(self, paper: Paper) -> DownloadResult:
@@ -546,35 +1051,119 @@ class CNKIBrowser:
         try:
             # 导航到详情页
             self.logger.info(f"正在进入详情页: {paper.title[:50]}...")
+            self.logger.debug(f"原始URL: {paper.url}")
 
-            # 处理相对URL
-            if paper.url and not paper.url.startswith('http'):
-                paper.url = "https://kns.cnki.net" + paper.url
+            # 处理URL：确保是完整的绝对URL
+            if not paper.url:
+                raise Exception("论文URL为空，无法访问详情页")
+            
+            # 清理URL（移除可能的空格和换行）
+            paper.url = paper.url.strip()
+            
+            # 如果URL已经是完整的，直接使用
+            if paper.url.startswith(('http://', 'https://')):
+                self.logger.debug(f"URL已经是完整的绝对路径: {paper.url}")
+            # 如果是相对路径，需要拼接
+            elif paper.url.startswith('/'):
+                # 判断应该使用哪个域名
+                if 'kc.cnki.net' in self.page.url:
+                    base_url = "https://kc.cnki.net"
+                else:
+                    base_url = "https://kns.cnki.net"
+                paper.url = base_url + paper.url
+                self.logger.debug(f"相对路径，拼接后URL: {paper.url}")
+            else:
+                # 其他情况，尝试拼接
+                if 'kc.cnki.net' in self.page.url:
+                    base_url = "https://kc.cnki.net"
+                else:
+                    base_url = "https://kns.cnki.net"
+                paper.url = base_url + '/' + paper.url.lstrip('/')
+                self.logger.debug(f"其他路径，拼接后URL: {paper.url}")
 
+            self.logger.info(f"访问URL: {paper.url}")
             await self.page.goto(paper.url, timeout=self.timeout)
             await self.page.wait_for_load_state("networkidle")
 
             # 查找PDF下载按钮
             download_button = None
 
-            # 尝试PDF下载
-            try:
-                download_button = await self.page.wait_for_selector(
-                    self.PDF_DOWNLOAD_SELECTOR,
-                    timeout=5000
-                )
-                self.logger.info("✓ 找到PDF下载按钮")
-            except:
-                self.logger.info("未找到PDF下载按钮，尝试CAJ格式")
-                # 尝试CAJ下载
+            # 尝试多种选择器策略查找PDF下载按钮
+            pdf_selectors = [
+                "button:has-text('PDF下载')",  # button元素包含文本
+                "button .n-button__content:text-is('PDF下载')",  # button内的span元素
+                "button.n-button:has(.n-button__content:text-is('PDF下载'))",  # 通过class和内容定位
+                "a:has-text('PDF下载')",  # a标签（备用）
+            ]
+            
+            for selector in pdf_selectors:
                 try:
+                    self.logger.debug(f"尝试PDF下载按钮选择器: {selector}")
                     download_button = await self.page.wait_for_selector(
-                        self.CAJ_DOWNLOAD_SELECTOR,
-                        timeout=5000
+                        selector,
+                        timeout=3000,
+                        state="visible"
                     )
-                    self.logger.info("✓ 找到CAJ下载按钮")
-                except:
-                    raise Exception("未找到下载按钮")
+                    if download_button:
+                        # 如果是通过span定位的，需要找到父button
+                        if "n-button__content" in selector:
+                            # 使用JavaScript找到父button元素
+                            try:
+                                # 通过evaluate获取父button元素
+                                parent_button = await download_button.evaluate("el => el.closest('button')")
+                                if parent_button:
+                                    # 重新查询父button元素
+                                    download_button = await self.page.query_selector("button:has(.n-button__content:text-is('PDF下载'))")
+                            except Exception as e:
+                                self.logger.debug(f"获取父button失败: {e}，尝试直接查找")
+                                # 如果获取父元素失败，尝试直接查找button
+                                download_button = await self.page.query_selector("button:has(.n-button__content:text-is('PDF下载'))")
+                        self.logger.info(f"✓ 找到PDF下载按钮，使用选择器: {selector}")
+                        break
+                except Exception as e:
+                    self.logger.debug(f"选择器 {selector} 失败: {e}")
+                    continue
+            
+            # 如果PDF按钮未找到，尝试CAJ下载
+            if not download_button:
+                self.logger.info("未找到PDF下载按钮，尝试CAJ格式")
+                caj_selectors = [
+                    "button:has-text('CAJ下载')",  # button元素包含文本
+                    "button .n-button__content:text-is('CAJ下载')",  # button内的span元素
+                    "button.n-button:has(.n-button__content:text-is('CAJ下载'))",  # 通过class和内容定位
+                    "a:has-text('CAJ下载')",  # a标签（备用）
+                ]
+                
+                for selector in caj_selectors:
+                    try:
+                        self.logger.debug(f"尝试CAJ下载按钮选择器: {selector}")
+                        download_button = await self.page.wait_for_selector(
+                            selector,
+                            timeout=3000,
+                            state="visible"
+                        )
+                        if download_button:
+                            # 如果是通过span定位的，需要找到父button
+                            if "n-button__content" in selector:
+                                # 使用JavaScript找到父button元素
+                                try:
+                                    # 通过evaluate获取父button元素
+                                    parent_button = await download_button.evaluate("el => el.closest('button')")
+                                    if parent_button:
+                                        # 重新查询父button元素
+                                        download_button = await self.page.query_selector("button:has(.n-button__content:text-is('CAJ下载'))")
+                                except Exception as e:
+                                    self.logger.debug(f"获取父button失败: {e}，尝试直接查找")
+                                    # 如果获取父元素失败，尝试直接查找button
+                                    download_button = await self.page.query_selector("button:has(.n-button__content:text-is('CAJ下载'))")
+                            self.logger.info(f"✓ 找到CAJ下载按钮，使用选择器: {selector}")
+                            break
+                    except Exception as e:
+                        self.logger.debug(f"选择器 {selector} 失败: {e}")
+                        continue
+            
+            if not download_button:
+                raise Exception("未找到下载按钮（PDF或CAJ）")
 
             # 点击下载
             self.logger.info("正在点击下载按钮...")

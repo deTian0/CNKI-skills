@@ -22,7 +22,7 @@ async def main():
     skill = get_skill()
 
     # 执行下载
-    user_input = r"帮我下载3篇跟'医学'相关的学位论文到 D:\papers"
+    user_input = r"帮我下载3篇跟'铝合金'相关的学位论文到 D:\papers"
     result = await skill.download_papers(user_input)
 
     print("\n" + result)

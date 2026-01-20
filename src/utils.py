@@ -51,7 +51,7 @@ def sanitize_filename(filename: str, max_length: int = 200) -> str:
 
     # 限制长度
     if len(name) > max_length:
-        name = name[:max_length-3] + '...'
+        name = name[:max_length - 3] + '...'
 
     # 如果清理后为空，使用默认名称
     if not name:
@@ -152,7 +152,7 @@ def format_duration(seconds: float) -> str:
         return f"{hours}小时{minutes}分"
 
 
-def setup_logging(log_dir: Path, level: str = "INFO") -> logging.Logger:
+def setup_logging(log_dir: Path, level: str = "DEBUGER") -> logging.Logger:
     """
     设置日志
 
@@ -167,6 +167,7 @@ def setup_logging(log_dir: Path, level: str = "INFO") -> logging.Logger:
     log_dir.mkdir(parents=True, exist_ok=True)
 
     # 创建logger
+
     logger = logging.getLogger("cnki_downloader")
     logger.setLevel(getattr(logging, level.upper()))
 
@@ -210,9 +211,28 @@ def save_error_log(error_log: ErrorLog, log_dir: Path) -> None:
 
         error_file = log_dir / f"error_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
 
+        # 获取字典并处理Path对象
+        error_dict = error_log.to_dict()
+
+        # 递归处理字典中的Path对象
+        def convert_paths(obj):
+            """递归转换Path对象为字符串"""
+            if isinstance(obj, Path):
+                return str(obj)
+            elif isinstance(obj, dict):
+                return {k: convert_paths(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_paths(item) for item in obj]
+            elif isinstance(obj, tuple):
+                return tuple(convert_paths(item) for item in obj)
+            else:
+                return obj
+
+        error_dict = convert_paths(error_dict)
+
         with open(error_file, 'w', encoding='utf-8') as f:
             import json
-            json.dump(error_log.to_dict(), f, indent=2, ensure_ascii=False)
+            json.dump(error_dict, f, indent=2, ensure_ascii=False)
 
         print(f"📍 错误日志已保存: {error_file}")
     except Exception as e:
