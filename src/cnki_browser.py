@@ -71,6 +71,7 @@ class CNKIBrowser:
     def __init__(
             self,
             download_dir: Path,
+            config=None,
             headless: bool = False,
             slow_mo: int = 500,
             timeout: int = 30000,
@@ -87,6 +88,7 @@ class CNKIBrowser:
 
         Args:
             download_dir: 下载保存目录
+            config: 配置对象（优先使用，如果提供则覆盖其他参数）
             headless: 是否无头模式
             slow_mo: 操作延迟（毫秒）
             timeout: 超时时间（毫秒）
@@ -98,20 +100,35 @@ class CNKIBrowser:
             user_agent: 用户代理字符串
             logger: 日志对象
         """
+        self.config = config
         self.download_dir = download_dir
-        self.headless = headless
-        self.slow_mo = slow_mo
-        self.timeout = timeout
-        self.viewport_width = viewport_width
-        self.viewport_height = viewport_height
-        self.locale = locale
-        self.timezone = timezone
-        self.browser_args = browser_args or []
-        self.user_agent = user_agent or (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/120.0.0.0 Safari/537.36"
-        )
+        
+        # 优先使用 config，否则使用传入的参数
+        if config and hasattr(config, 'browser'):
+            browser_settings = config.browser
+            self.headless = browser_settings.headless
+            self.slow_mo = browser_settings.slow_mo
+            self.timeout = config.download.timeout if hasattr(config, 'download') else timeout
+            self.viewport_width = browser_settings.viewport_width
+            self.viewport_height = browser_settings.viewport_height
+            self.locale = browser_settings.locale
+            self.timezone = browser_settings.timezone
+            self.browser_args = browser_settings.args if browser_settings.args else browser_args
+            self.user_agent = browser_settings.user_agent or user_agent
+        else:
+            self.headless = headless
+            self.slow_mo = slow_mo
+            self.timeout = timeout
+            self.viewport_width = viewport_width
+            self.viewport_height = viewport_height
+            self.locale = locale
+            self.timezone = timezone
+            self.browser_args = browser_args or []
+            self.user_agent = user_agent or (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            )
         self.logger = logger or setup_logging(download_dir / "logs")
 
         self.playwright = None
@@ -214,8 +231,10 @@ class CNKIBrowser:
         except Exception as e:
             self.logger.error(f"❌ 关闭浏览器时出错: {e}")
 
-    async def _wait_for_page_load(self, timeout: int = 15000):
+    async def _wait_for_page_load(self, timeout: int = None):
         """等待页面加载完成（公共方法）"""
+        if timeout is None:
+            timeout = self.config.browser.page_load_timeout if self.config and hasattr(self.config, 'browser') else 15000
         try:
             await self.page.wait_for_load_state("networkidle", timeout=timeout)
         except:
@@ -227,7 +246,7 @@ class CNKIBrowser:
             initial_pages: dict,
             initial_page_count: int,
             url_keywords: List[str] = None,
-            wait_time: int = 2,
+            wait_time: int = None,
             action_description: str = "操作"
     ) -> Optional[Page]:
         """
@@ -238,13 +257,15 @@ class CNKIBrowser:
             initial_pages: 操作前所有页面的URL字典 {url: page}
             initial_page_count: 操作前的页面数量
             url_keywords: 用于查找目标页面的URL关键词列表（如["search", "result"]）
-            wait_time: 等待新页面打开的时间（秒）
+            wait_time: 等待新页面打开的时间（秒），如果为None则使用配置
             action_description: 操作描述（用于日志）
 
         Returns:
             找到的目标页面，如果没有找到则返回None
         """
         # 等待页面响应（可能是跳转或打开新标签页）
+        if wait_time is None:
+            wait_time = self.config.browser.page_switch_wait_time if self.config and hasattr(self.config, 'browser') else 2
         await asyncio.sleep(wait_time)
 
         # 检查所有页面，找到新打开的页面或URL改变的页面
@@ -368,11 +389,13 @@ class CNKIBrowser:
 
             # 等待页面完全加载
             await self.page.wait_for_load_state("domcontentloaded")
-            await asyncio.sleep(2)  # 额外等待2秒，确保动态内容加载
+            content_load_wait = self.config.browser.content_load_wait_time if self.config and hasattr(self.config, 'browser') else 2
+            await asyncio.sleep(content_load_wait)  # 额外等待，确保动态内容加载
 
             # 等待页面稳定
+            network_idle_timeout = self.config.browser.network_idle_timeout if self.config and hasattr(self.config, 'browser') else 10000
             try:
-                await self.page.wait_for_load_state("networkidle", timeout=10000)
+                await self.page.wait_for_load_state("networkidle", timeout=network_idle_timeout)
             except:
                 pass  # 忽略超时，继续执行
 
@@ -387,12 +410,13 @@ class CNKIBrowser:
                 f"a >> text='{doc_type}'",  # Playwright文本选择器
             ]
 
+            selector_timeout = self.config.browser.selector_timeout if self.config and hasattr(self.config, 'browser') else 8000
             for sel in selectors_to_try:
                 try:
                     self.logger.debug(f"尝试选择器: {sel}")
                     element = await self.page.wait_for_selector(
                         sel,
-                        timeout=8000,  # 每个选择器尝试8秒
+                        timeout=selector_timeout,  # 每个选择器尝试时间
                         state="visible"  # 确保元素可见
                     )
                     if element:
@@ -411,13 +435,15 @@ class CNKIBrowser:
                 # 如果所有选择器都失败，尝试滚动页面并再次查找
                 self.logger.info("尝试滚动页面查找元素...")
                 await self.page.evaluate("window.scrollTo(0, document.body.scrollHeight / 2)")
-                await asyncio.sleep(1)
+                scroll_wait = self.config.browser.scroll_wait_time if self.config and hasattr(self.config, 'browser') else 1
+                await asyncio.sleep(scroll_wait)
 
                 # 再次尝试原始选择器
+                selector_retry_timeout = self.config.browser.selector_retry_timeout if self.config and hasattr(self.config, 'browser') else 10000
                 try:
                     element = await self.page.wait_for_selector(
                         selector,
-                        timeout=10000,
+                        timeout=selector_retry_timeout,
                         state="visible"
                     )
                 except:
@@ -927,7 +953,8 @@ class CNKIBrowser:
         ]
         for selector in selectors:
             try:
-                button = await self.page.wait_for_selector(selector, timeout=3000, state="visible")
+                download_button_timeout = self.config.browser.download_button_timeout if self.config and hasattr(self.config, 'browser') else 3000
+                button = await self.page.wait_for_selector(selector, timeout=download_button_timeout, state="visible")
                 if button:
                     self.logger.info(f"✓ 找到{button_text}按钮")
                     return button
@@ -935,8 +962,10 @@ class CNKIBrowser:
                 continue
         return None
 
-    async def _find_element_by_selectors(self, selectors: List[str], timeout: int = 5000, description: str = "元素"):
+    async def _find_element_by_selectors(self, selectors: List[str], timeout: int = None, description: str = "元素"):
         """通过多个选择器查找元素（公共方法）"""
+        if timeout is None:
+            timeout = self.config.browser.element_find_timeout if self.config and hasattr(self.config, 'browser') else 5000
         for selector in selectors:
             try:
                 elem = await self.page.wait_for_selector(selector, timeout=timeout, state="visible")
@@ -949,15 +978,16 @@ class CNKIBrowser:
 
     async def _find_search_input(self):
         """查找搜索框（公共方法）"""
+        element_find_timeout = self.config.browser.element_find_timeout if self.config and hasattr(self.config, 'browser') else 5000
         for selector in self.SEARCH_INPUT_SELECTORS:
             try:
                 if selector == "input[class*='n-input__input']":
-                    await self.page.wait_for_selector(selector, timeout=5000, state="visible")
+                    await self.page.wait_for_selector(selector, timeout=element_find_timeout, state="visible")
                     all_inputs = await self.page.query_selector_all(selector)
                     if all_inputs:
                         return all_inputs[0]
                 else:
-                    input_elem = await self.page.wait_for_selector(selector, timeout=5000, state="visible")
+                    input_elem = await self.page.wait_for_selector(selector, timeout=element_find_timeout, state="visible")
                     if input_elem and await input_elem.is_visible():
                         return input_elem
             except:

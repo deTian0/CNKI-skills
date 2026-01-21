@@ -72,18 +72,10 @@ class ConcurrentDownloader:
             raise Exception(f"下载目录无效: {error_msg}")
 
         try:
-            # 启动浏览器（使用反检测配置）
+            # 启动浏览器（使用配置）
             browser = CNKIBrowser(
                 download_dir=request.save_dir,
-                headless=self.config.browser.headless if self.config else False,
-                slow_mo=self.config.browser.slow_mo if self.config else 500,
-                timeout=self.config.download.timeout if self.config else 30000,
-                viewport_width=self.config.browser.viewport_width if self.config else 1366,
-                viewport_height=self.config.browser.viewport_height if self.config else 768,
-                locale=self.config.browser.locale if self.config else "zh-CN",
-                timezone=self.config.browser.timezone if self.config else "Asia/Shanghai",
-                browser_args=self.config.browser.args if self.config else None,
-                user_agent=self.config.browser.user_agent if self.config else None,
+                config=self.config,  # 传递完整配置对象
                 logger=self.logger
             )
 
