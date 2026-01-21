@@ -64,6 +64,9 @@ class CNKIBrowser:
     # 下载按钮选择器（支持button和a标签）
     PDF_DOWNLOAD_SELECTOR = "button:has-text('PDF下载'), button .n-button__content:text-is('PDF下载'), a:has-text('PDF下载')"
     CAJ_DOWNLOAD_SELECTOR = "button:has-text('CAJ下载'), button .n-button__content:text-is('CAJ下载'), a:has-text('CAJ下载')"
+    
+    # 标题选择器列表
+    TITLE_SELECTORS = ["a.title", ".name a", "a[href*='detail']", "td a", "a"]
 
     def __init__(
             self,
@@ -568,38 +571,8 @@ class CNKIBrowser:
             self.logger.info(f"正在执行检索: {keyword}")
             self.logger.debug(f"当前页面URL: {self.page.url}")
 
-            # 尝试多个选择器定位搜索框
-            search_input = None
-            for selector in self.SEARCH_INPUT_SELECTORS:
-                try:
-                    # 对于可能匹配多个元素的选择器，使用 query_selector_all 并选择第一个
-                    if selector == "input[class*='n-input__input']":
-                        # 等待至少一个元素出现
-                        await self.page.wait_for_selector(selector, timeout=5000, state="visible")
-                        # 获取所有匹配的元素，选择第一个
-                        all_inputs = await self.page.query_selector_all(selector)
-                        if all_inputs and len(all_inputs) > 0:
-                            search_input = all_inputs[0]
-                            self.logger.debug(f"找到 {len(all_inputs)} 个匹配的输入框，选择第一个")
-                    else:
-                        search_input = await self.page.wait_for_selector(
-                            selector,
-                            timeout=5000,
-                            state="visible"
-                        )
-
-                    if search_input:
-                        # 验证元素是否可见和可交互
-                        is_visible = await search_input.is_visible()
-                        if is_visible:
-                            self.logger.debug(f"✓ 使用选择器定位搜索框: {selector}")
-                            break
-                        else:
-                            search_input = None
-                except Exception as e:
-                    self.logger.debug(f"选择器 {selector} 失败: {e}")
-                    continue
-
+            # 查找搜索框
+            search_input = await self._find_search_input()
             if not search_input:
                 raise Exception("无法定位搜索框")
 
@@ -627,12 +600,8 @@ class CNKIBrowser:
 
             # 等待结果页加载
             self.logger.info("等待搜索结果页面加载...")
-            try:
-                # 先等待页面基本加载完成
-                await self.page.wait_for_load_state("domcontentloaded", timeout=10000)
-                await asyncio.sleep(1)  # 额外等待1秒，确保动态内容开始加载
-            except:
-                pass  # 忽略超时，继续执行
+            await self._wait_for_page_load()
+            await asyncio.sleep(1)  # 额外等待1秒，确保动态内容开始加载
 
             # 等待结果列表出现（使用多种策略）
             result_found = False
@@ -833,9 +802,8 @@ class CNKIBrowser:
                     self.logger.debug(f"--- 处理第 {index}/{len(items)} 个项目 ---")
 
                     # 提取标题
-                    title_selectors = ["a.title", ".name a", "a[href*='detail']", "td a", "a"]
                     title_elem = None
-                    for selector in title_selectors:
+                    for selector in self.TITLE_SELECTORS:
                         title_elem = await item.query_selector(selector)
                         if title_elem:
                             break
@@ -967,6 +935,47 @@ class CNKIBrowser:
                 continue
         return None
 
+    async def _find_element_by_selectors(self, selectors: List[str], timeout: int = 5000, description: str = "元素"):
+        """通过多个选择器查找元素（公共方法）"""
+        for selector in selectors:
+            try:
+                elem = await self.page.wait_for_selector(selector, timeout=timeout, state="visible")
+                if elem and await elem.is_visible():
+                    self.logger.debug(f"✓ 找到{description}，使用选择器: {selector}")
+                    return elem
+            except:
+                continue
+        return None
+
+    async def _find_search_input(self):
+        """查找搜索框（公共方法）"""
+        for selector in self.SEARCH_INPUT_SELECTORS:
+            try:
+                if selector == "input[class*='n-input__input']":
+                    await self.page.wait_for_selector(selector, timeout=5000, state="visible")
+                    all_inputs = await self.page.query_selector_all(selector)
+                    if all_inputs:
+                        return all_inputs[0]
+                else:
+                    input_elem = await self.page.wait_for_selector(selector, timeout=5000, state="visible")
+                    if input_elem and await input_elem.is_visible():
+                        return input_elem
+            except:
+                continue
+        return None
+
+    def _normalize_url(self, url: str) -> str:
+        """规范化URL（公共方法）"""
+        if not url:
+            raise Exception("URL为空")
+        
+        url = url.strip()
+        if url.startswith(('http://', 'https://')):
+            return url
+        
+        base_url = "https://kc.cnki.net" if 'kc.cnki.net' in self.page.url else "https://kns.cnki.net"
+        return base_url + (url if url.startswith('/') else '/' + url.lstrip('/'))
+
     async def _extract_field(self, item, field_name: str, selectors: List[str]) -> Optional[str]:
         """提取字段的公共方法"""
         for selector in selectors:
@@ -995,34 +1004,8 @@ class CNKIBrowser:
             self.logger.info(f"正在进入详情页: {paper.title[:50]}...")
             self.logger.debug(f"原始URL: {paper.url}")
 
-            # 处理URL：确保是完整的绝对URL
-            if not paper.url:
-                raise Exception("论文URL为空，无法访问详情页")
-            
-            # 清理URL（移除可能的空格和换行）
-            paper.url = paper.url.strip()
-            
-            # 如果URL已经是完整的，直接使用
-            if paper.url.startswith(('http://', 'https://')):
-                self.logger.debug(f"URL已经是完整的绝对路径: {paper.url}")
-            # 如果是相对路径，需要拼接
-            elif paper.url.startswith('/'):
-                # 判断应该使用哪个域名
-                if 'kc.cnki.net' in self.page.url:
-                    base_url = "https://kc.cnki.net"
-                else:
-                    base_url = "https://kns.cnki.net"
-                paper.url = base_url + paper.url
-                self.logger.debug(f"相对路径，拼接后URL: {paper.url}")
-            else:
-                # 其他情况，尝试拼接
-                if 'kc.cnki.net' in self.page.url:
-                    base_url = "https://kc.cnki.net"
-                else:
-                    base_url = "https://kns.cnki.net"
-                paper.url = base_url + '/' + paper.url.lstrip('/')
-                self.logger.debug(f"其他路径，拼接后URL: {paper.url}")
-
+            # 规范化URL
+            paper.url = self._normalize_url(paper.url)
             self.logger.info(f"访问URL: {paper.url}")
             await self.page.goto(paper.url, timeout=self.timeout)
             await self.page.wait_for_load_state("networkidle")
