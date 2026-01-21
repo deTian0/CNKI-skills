@@ -10,11 +10,12 @@ from datetime import datetime
 
 from playwright.async_api import async_playwright, Page, Browser, BrowserContext, Download
 
-from src.models import Paper, DownloadResult, DownloadStatus, ErrorLog
+from src.platforms.base import PlatformBase
+from src.core.models import Paper, DownloadResult, DownloadStatus, ErrorLog
 from src.utils import sanitize_filename, generate_unique_filename, setup_logging
 
 
-class CNKIBrowser:
+class CNKIBrowser(PlatformBase):
     """CNKI浏览器操作封装"""
 
     # CNKI URL
@@ -756,7 +757,7 @@ class CNKIBrowser:
                 self.logger.info(f"正在获取第 {page_num} 页...")
 
                 # 获取当前页的论文列表
-                page_papers = await self._get_papers_from_current_page()
+                page_papers = await self.get_papers_from_current_page()
 
                 if not page_papers:
                     self.logger.warning("当前页没有找到论文，停止获取")
@@ -771,19 +772,9 @@ class CNKIBrowser:
                     break
 
                 # 尝试翻页
-                try:
-                    # 查找"下一页"按钮
-                    next_button = self.page.locator("a:has-text('下一页'), a.next").first
-                    if await next_button.is_visible():
-                        await next_button.click()
-                        await self.page.wait_for_load_state("networkidle")
-                        page_num += 1
-                    else:
-                        self.logger.info("没有更多页面了")
-                        break
-                except:
-                    self.logger.info("无法找到下一页按钮")
+                if not await self.goto_next_page():
                     break
+                page_num += 1
 
             self.logger.info(f"✓ 共获取 {len(papers)} 篇论文信息")
 
@@ -793,7 +784,7 @@ class CNKIBrowser:
             self.logger.error(f"❌ 获取论文列表失败: {e}")
             raise
 
-    async def _get_papers_from_current_page(self) -> List[Paper]:
+    async def get_papers_from_current_page(self) -> List[Paper]:
         """
         从当前页提取论文信息
 
@@ -993,6 +984,28 @@ class CNKIBrowser:
             except:
                 continue
         return None
+
+    async def goto_next_page(self) -> bool:
+        """
+        翻到下一页
+
+        Returns:
+            是否成功翻页
+        """
+        try:
+            # 查找"下一页"按钮
+            next_button = self.page.locator("a:has-text('下一页'), a.next, button:has-text('下一页')").first
+            if await next_button.is_visible():
+                await next_button.click()
+                await self.page.wait_for_load_state("networkidle")
+                self.logger.info("✓ 已翻到下一页")
+                return True
+            else:
+                self.logger.info("没有更多页面了")
+                return False
+        except Exception as e:
+            self.logger.info(f"无法找到下一页按钮: {e}")
+            return False
 
     def _normalize_url(self, url: str) -> str:
         """规范化URL（公共方法）"""

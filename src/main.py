@@ -7,10 +7,10 @@ import asyncio
 import sys
 from pathlib import Path
 
-from src.parser import InputParser
+from src.core.parser import InputParser
 from src.downloader import CNKIDownloader
-from src.config import ConfigManager
-from src.models import DownloadRequest
+from src.core.config import ConfigManager
+from src.core.models import DownloadRequest
 from src.utils import ensure_directory, setup_logging
 
 
@@ -124,7 +124,7 @@ class CNKIPaperDownloaderSkill:
 
         elapsed = summary.get_elapsed_time()
         if elapsed:
-            from src.utils import format_duration
+            from src.utils.format_utils import format_duration
             lines.append(f"\n⏱️  耗时: {format_duration(elapsed)}")
 
             speed = summary.get_speed()

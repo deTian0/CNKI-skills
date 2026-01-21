@@ -6,7 +6,7 @@ CNKI论文下载器 - 用户输入解析器
 import re
 from pathlib import Path
 from typing import Optional, Tuple
-from src.models import DownloadRequest, DocumentType
+from src.core.models import DownloadRequest, DocumentType
 
 
 class InputParser:

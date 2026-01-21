@@ -8,11 +8,11 @@ from pathlib import Path
 from typing import List
 from datetime import datetime
 
-from src.models import (
+from src.core.models import (
     DownloadRequest, DownloadSummary, DownloadResult,
     Paper, ErrorLog, DownloadStatus
 )
-from src.cnki_browser import CNKIBrowser
+from src.platforms.cnki import CNKIBrowser
 from src.utils import (
     ensure_directory, is_valid_download_directory,
     save_error_log, generate_download_report, setup_logging
